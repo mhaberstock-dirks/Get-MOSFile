@@ -1,6 +1,6 @@
-# Get-MOSFile
+# Get-MosPatch
 
-PowerShell-Skript zum Herunterladen von Oracle-Patches aus My Oracle Support (MOS) auf Rechnern ohne Browser, z. B. Windows-Server, auf die man nur per RDP zugreift, und auf denen kein Browser installiert ist.
+PowerShell-Skript zum Herunterladen von Oracle-Patches aus My Oracle Support (MOS) auf Rechnern ohne Browser, z. B. Windows-Server, auf die man nur per RDP zugreift.
 
 Das Skript arbeitet eine Liste von Download-URLs ab, authentifiziert sich per Access-Token (`Authorization: Bearer ...`, wie das von MOS erzeugte `wget.sh`) und prueft jede Datei nach dem Download per SHA-256 und ZIP-Test.
 
@@ -25,19 +25,45 @@ D:\Patches\
 
 Die Zip-Dateien werden ebenfalls in diesem Ordner abgelegt.
 
-### 1. URLs aus dem wget.sh uebernehmen
+### 1. URL-Zeilen erstellen
 
-1. In MOS den Patch oeffnen (Patches & Updates) und im Download-Dialog **Download wget Script** waehlen.
-2. Im heruntergeladenen `wget.sh` steht zwischen `#start of patch list` und `#END of patch list` eine Zeile pro Patch:
+Jede Zeile der URL-Datei hat das Format
+
+```text
+URL,PATCH_PASSWORD,SHA256
+```
+
+Das Patch-Passwort ist meist leer, die beiden Kommas bleiben trotzdem stehen (`URL,,SHA256`). Die SHA-256-Pruefsumme ist **nicht Teil der URL**, sie steht hinter dem ersten Komma-Block. Leerzeilen und Zeilen mit `#` werden ignoriert, mehrere Patches = mehrere Zeilen.
+
+#### Variante A: aus dem Download-Dialog (schnell)
+
+1. In MOS den Patch oeffnen (Patches & Updates) und **Download** waehlen. 
+
+   ![Download-Dialog mit Dateilink](docs/img/download-dialog.png)
+
+2. Es oeffnet sich der Dialog *File Download* mit dem Dateinamen als Link.
+
+   ![Digest Details mit SHA-256](docs/img/digest-details.png)
+
+2. Rechtsklick auf den Dateinamen und **Link-Adresse kopieren** (nicht anklicken). Das ist der URL-Teil, er enthaelt den Dateinamen zweimal (Pfad und `patch_file=`) sowie den patchspezifischen Parameter `aru`.
+
+3. Im selben  Dialog auf den Button **View Digest Details** klicken und den daraufhin eingeblendeten **SHA-256**-Wert kopieren (nicht MD5/SHA-1).
+
+4. In die URL-Datei einfuegen: URL, dann `,,`, dann der SHA-256-Wert, alles in einer Zeile ohne Leerzeichen:
 
    ```text
-   URL,PATCH_PASSWORD,SHA256
+   <URL>,,<SHA256>
    ```
 
-   Das Passwort ist meist leer (daher `,,`). Die URL enthaelt den Dateinamen zweimal (Pfad und `patch_file=`) und den patchspezifischen Parameter `aru`. Die SHA-256-Pruefsumme steht **hinter** der URL und ist nicht Teil der URL.
-3. Diese Zeile(n) unveraendert in `urls.txt` kopieren. Mehrere Patches = mehrere Zeilen. Leerzeilen und Zeilen mit `#` werden ignoriert.
+#### Variante B: aus dem wget.sh
 
-Beispiel:
+1. Im Download-Dialog **Download wget Script** waehlen.
+2. Im heruntergeladenen `wget.sh` steht zwischen `#start of patch list` und `#END of patch list` die fertige Zeile im Format `URL,PATCH_PASSWORD,SHA256`.
+3. Diese Zeile unveraendert in die URL-Datei kopieren.
+
+Variante B ist die Referenz, wenn etwas nicht passt (z. B. bei Patches mit Passwort), weil die Zeile von MOS selbst erzeugt wird. Variante A ist meist schneller, da das ueber 350 Zeilen lange Skript nicht durchsucht werden muss.
+
+Beispiel (`urls.txt`):
 
 ```text
 # 19.32 Windows
@@ -60,7 +86,7 @@ Das Token ist nur etwa **1 Stunde gueltig**. Bei grossen Downloads oder mehreren
 ## Aufruf
 
 ```powershell
-.\Get-MOSFile.ps1 D:\Patches\urls.txt
+.\Get-MosPatch.ps1 D:\Patches\urls.txt
 ```
 
 Der Pfad der URL-Datei bestimmt die Arbeitsverzeichnisse:
@@ -73,7 +99,7 @@ Der Pfad der URL-Datei bestimmt die Arbeitsverzeichnisse:
 Beispiel mit abweichenden Pfaden:
 
 ```powershell
-.\Get-MOSFile.ps1 .\urls.txt -TokenFile C:\secure\access_token.txt -OutDir E:\Downloads
+.\Get-MosPatch.ps1 .\urls.txt -TokenFile C:\secure\access_token.txt -OutDir E:\Downloads
 ```
 
 ## Was das Skript macht
@@ -99,8 +125,8 @@ Die Patches werden nacheinander geladen. Ein Fehler bei einer Datei stoppt die a
 
 - **HTTP 401/403**: Token abgelaufen oder ungueltig. Neues Token holen und das Skript erneut starten; fertige Dateien werden per Hash erkannt und nicht neu geladen.
 - **Download liefert eine HTML-Datei / "Sorry, company policy prohibits this action"**: Eine Firewall oder ein Web-Proxy (z. B. Zscaler) blockiert den Zugriff auf Oracle. Freigabe fuer die Oracle-Hosts beantragen.
-- **SHA-256 stimmt nicht**: Download unvollstaendig oder veraendert. Datei loeschen und neu laden.
-- **"SHA-256 fehlt"**: Die Zeile in der URL-Datei muss das Format `URL,PASSWORT,SHA256` haben (zwei Kommas auch bei leerem Passwort).
+- **SHA-256 stimmt nicht**: Download unvollstaendig oder veraendert, oder es wurde ein falscher Digest (MD5/SHA-1) eingetragen. Datei loeschen und neu laden.
+- **"SHA-256 fehlt"**: Die Zeile in der URL-Datei muss das Format `URL,PASSWORT,SHA256` haben (zwei Kommas auch bei leerem Passwort, keine Leerzeichen oder Zeilenumbrueche im Hash).
 - **`curl.exe` nicht gefunden**: Aeltere Windows-Versionen (z. B. Server 2016) liefern es nicht mit; curl separat bereitstellen.
 
 ## Sicherheit
